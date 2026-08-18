@@ -51,6 +51,23 @@ npm test
 - **Frontend**: JavaScript puro (sem framework/bundler) + Tailwind CSS via
   CDN.
 
+## Publicar no GitHub Pages
+
+O app não tem nenhuma lógica de servidor — `src/server.js` só serve arquivos
+estáticos — então dá para publicar um snapshot completo (app + dados
+baixados) no GitHub Pages, sem servidor nenhum rodando.
+
+Configuração única, pela interface do GitHub, depois de subir o repositório:
+
+1. **Settings → Pages → Build and deployment → Source**: escolha
+   "GitHub Actions".
+2. Aba **Actions → "Deploy to GitHub Pages" → Run workflow**: dispara o
+   workflow (`.github/workflows/deploy-pages.yml`), que baixa os dados do ano
+   escolhido, monta o site e publica.
+
+Repita o passo 2 sempre que quiser atualizar o snapshot publicado — a
+publicação não é automática, só roda quando disparada manualmente.
+
 ## Fonte dos dados
 
 Os dados baixados (pasta `data/`, não versionada) vêm do CDN público de

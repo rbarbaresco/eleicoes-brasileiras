@@ -183,7 +183,7 @@
   const extraCache = {}; // { [ano]: { bens, complementar, motivoCassacao, coligacoes } }
 
   function fotoUrl(ano, c) {
-    return `/data/${ano}/fotos/${c.uf}/F${c.uf}${c.sq}_div.jpg`;
+    return `data/${ano}/fotos/${c.uf}/F${c.uf}${c.sq}_div.jpg`;
   }
 
   // Repopula o select de Estado preservando a seleção atual quando ela ainda
@@ -257,7 +257,7 @@
   }
 
   async function carregarManifest() {
-    const res = await fetch('/data/manifest.json');
+    const res = await fetch('data/manifest.json');
     manifest = await res.json();
     const anos = Object.keys(manifest.years).sort((a, b) => b - a);
     if (anos.length === 0) {
@@ -277,7 +277,7 @@
   async function carregarAno(ano) {
     anoAtual = ano;
     anoSel.value = ano;
-    const res = await fetch(`/data/${ano}/candidatos.json`);
+    const res = await fetch(`data/${ano}/candidatos.json`);
     candidatos = await res.json();
 
     const ufs = [...new Set(candidatos.map((c) => c.uf))].sort();
@@ -380,7 +380,7 @@
     const entradas = await Promise.all(
       arquivos.map(async (nome) => {
         try {
-          const res = await fetch(`/data/${ano}/extra/${nome}.json`);
+          const res = await fetch(`data/${ano}/extra/${nome}.json`);
           if (!res.ok) return [nome, null];
           return [nome, await res.json()];
         } catch {
