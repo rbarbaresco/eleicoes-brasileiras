@@ -7,7 +7,10 @@
   const buscaInput = el('busca');
   const ordenarSel = el('ordenar');
   const limparBtn = el('limpar');
+  const somenteFavoritosChk = el('somente-favoritos');
+  const imprimirBtn = el('imprimir');
   const grid = el('grid');
+  const gridImpressao = el('grid-impressao');
   const contador = el('contador');
   const overlay = el('overlay');
   const detalhe = el('detalhe');
@@ -161,7 +164,6 @@
 
   const cargoSel = criarMultiSelect(el('cargo'), 'Todos');
   const partidoSel = criarMultiSelect(el('partido'), 'Todos');
-  const municipioSel = criarMultiSelect(el('municipio'), 'Todos');
   const instrucaoSel = criarMultiSelect(el('instrucao'), 'Todos');
   const ocupacaoSel = criarMultiSelect(el('ocupacao'), 'Todas');
   const naturalidadeSel = criarMultiSelect(el('naturalidade'), 'Todas');
@@ -182,8 +184,43 @@
   let ufPadrao = ''; // UF pré-selecionada ao carregar o ano / ao limpar filtros
   const extraCache = {}; // { [ano]: { bens, complementar, motivoCassacao, coligacoes } }
 
+  const FAVORITOS_KEY = 'eleicoes-favoritos';
+  let favoritos = carregarFavoritos(); // { [ano]: string[] de sq }
+
+  function carregarFavoritos() {
+    try {
+      return JSON.parse(localStorage.getItem(FAVORITOS_KEY)) || {};
+    } catch {
+      return {};
+    }
+  }
+
+  function salvarFavoritos() {
+    try {
+      localStorage.setItem(FAVORITOS_KEY, JSON.stringify(favoritos));
+    } catch {
+      // localStorage indisponível (ex: modo privado) — segue sem persistir
+    }
+  }
+
+  function ehFavorito(sq) {
+    return (favoritos[anoAtual] || []).includes(sq);
+  }
+
+  function toggleFavorito(sq) {
+    const lista = favoritos[anoAtual] || [];
+    favoritos[anoAtual] = lista.includes(sq) ? lista.filter((v) => v !== sq) : [...lista, sq];
+    salvarFavoritos();
+  }
+
   function fotoUrl(ano, c) {
     return `data/${ano}/fotos/${c.uf}/F${c.uf}${c.sq}_div.jpg`;
+  }
+
+  // Presidente/Vice-Presidente têm uf "BR" — são os mesmos em qualquer
+  // Estado, então sempre "combinam" com o Estado selecionado.
+  function ufCompativel(c, uf) {
+    return !uf || c.uf === uf || c.uf === 'BR';
   }
 
   // Repopula o select de Estado preservando a seleção atual quando ela ainda
@@ -203,7 +240,7 @@
   // Cargo depende só do Estado escolhido.
   function atualizarOpcoesCargo() {
     const uf = ufSel.value;
-    const escopo = candidatos.filter((c) => !uf || c.uf === uf);
+    const escopo = candidatos.filter((c) => ufCompativel(c, uf));
     cargoSel.setOpcoes(paraOpcoes([...new Set(escopo.map((c) => c.cargo))].sort()));
   }
 
@@ -212,11 +249,10 @@
     const uf = ufSel.value;
     const cargos = cargoSel.getSelecionados();
     const escopo = candidatos.filter(
-      (c) => (!uf || c.uf === uf) && (!cargos.length || cargos.includes(c.cargo)),
+      (c) => ufCompativel(c, uf) && (!cargos.length || cargos.includes(c.cargo)),
     );
 
     partidoSel.setOpcoes(paraOpcoes([...new Set(escopo.map((c) => c.siglaPartido))].sort()));
-    municipioSel.setOpcoes(paraOpcoes([...new Set(escopo.map((c) => c.municipio))].sort()));
     instrucaoSel.setOpcoes(paraOpcoes([...new Set(escopo.map((c) => c.grauInstrucao))].filter(Boolean).sort()));
     ocupacaoSel.setOpcoes(paraOpcoes([...new Set(escopo.map((c) => c.ocupacao))].filter(Boolean).sort()));
 
@@ -231,7 +267,6 @@
   function limparFiltros() {
     cargoSel.limpar();
     partidoSel.limpar();
-    municipioSel.limpar();
     instrucaoSel.limpar();
     ocupacaoSel.limpar();
     naturalidadeSel.limpar();
@@ -271,7 +306,13 @@
       opt.textContent = ano;
       anoSel.appendChild(opt);
     }
-    await carregarAno(anos[0]);
+    const queryInicial = location.search;
+    const anoUrl = new URLSearchParams(queryInicial).get('ano');
+    // carregarAno() termina chamando render(), que já reescreve a URL com os
+    // filtros padrão — por isso a query original precisa ser capturada antes
+    // dessa chamada, não relida de location.search depois.
+    await carregarAno(anos.includes(anoUrl) ? anoUrl : anos[0]);
+    aplicarFiltrosDaUrl(queryInicial);
   }
 
   async function carregarAno(ano) {
@@ -296,14 +337,14 @@
     ufSel.value = ufPadrao;
     cargoSel.limpar();
     partidoSel.limpar();
-    municipioSel.limpar();
     instrucaoSel.limpar();
     ocupacaoSel.limpar();
     naturalidadeSel.limpar();
     bensSel.limpar();
     buscaInput.value = '';
+    somenteFavoritosChk.checked = false; // favoritos são por ano, não "vazam" na troca
 
-    // Cargo/Partido/Município/Instrução/Ocupação/Naturalidade nascem já
+    // Cargo/Partido/Instrução/Ocupação/Naturalidade nascem já
     // escopados pelo Estado (e Cargo) padrão, em vez de listar o Brasil inteiro.
     atualizarOpcoesCargo();
     atualizarOpcoesSecundarias();
@@ -315,18 +356,22 @@
     const uf = ufSel.value;
     const cargos = cargoSel.getSelecionados();
     const partidos = partidoSel.getSelecionados();
-    const municipios = municipioSel.getSelecionados();
     const instrucoes = instrucaoSel.getSelecionados();
     const ocupacoes = ocupacaoSel.getSelecionados();
     const naturalidades = naturalidadeSel.getSelecionados();
     const faixas = bensSel.getSelecionados();
     const busca = buscaInput.value.trim().toUpperCase();
+    const somenteFavoritos = somenteFavoritosChk.checked;
 
     let lista = candidatos.filter((c) => {
-      if (uf && c.uf !== uf) return false;
+      // "Somente favoritos" ignora a exigência de Estado: a lista de
+      // favoritos é sempre pequena, então não há risco de travar o
+      // navegador renderizando o Brasil inteiro (ver comentário em
+      // carregarAno() sobre o motivo dessa exigência existir).
+      if (!somenteFavoritos && !ufCompativel(c, uf)) return false;
+      if (somenteFavoritos && !ehFavorito(c.sq)) return false;
       if (cargos.length && !cargos.includes(c.cargo)) return false;
       if (partidos.length && !partidos.includes(c.siglaPartido)) return false;
-      if (municipios.length && !municipios.includes(c.municipio)) return false;
       if (instrucoes.length && !instrucoes.includes(c.grauInstrucao)) return false;
       if (ocupacoes.length && !ocupacoes.includes(c.ocupacao)) return false;
       if (naturalidades.length && !naturalidades.includes(extrasAtuais?.complementar?.[c.sq]?.naturalidade)) {
@@ -346,6 +391,7 @@
   }
 
   function render() {
+    escreverFiltrosNaUrl();
     const lista = filtrarOrdenar();
     contador.textContent = `${lista.length} candidato(s)`;
     grid.innerHTML = '';
@@ -353,8 +399,9 @@
     for (const c of lista) {
       const card = document.createElement('div');
       card.className =
-        'group flex cursor-pointer gap-4 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm transition-all duration-200 ease-in-out hover:scale-[1.01] hover:shadow-lg';
+        'group relative flex cursor-pointer gap-4 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm transition-all duration-200 ease-in-out hover:scale-[1.01] hover:shadow-lg';
       card.innerHTML = `
+        <button type="button" class="btn-favorito absolute right-3 top-3 z-10 text-lg leading-none text-amber-400 hover:text-amber-500" aria-pressed="${ehFavorito(c.sq)}" title="Favoritar">${ehFavorito(c.sq) ? '★' : '☆'}</button>
         ${
           c.foto
             ? `<img src="${fotoUrl(anoAtual, c)}" alt="" loading="lazy" onerror="this.remove()" class="h-24 w-20 flex-shrink-0 rounded-xl border border-slate-100 bg-slate-100 object-cover" />`
@@ -365,13 +412,50 @@
           <div class="truncate font-semibold text-slate-800">${c.nomeUrna || c.nome}</div>
           <div class="truncate text-xs text-slate-500">${c.nome}</div>
           <div class="text-xs text-slate-500">${c.siglaPartido} · ${c.cargo}</div>
-          <div class="text-xs text-slate-500">${c.uf}${c.municipio && c.municipio !== c.uf ? ' · ' + c.municipio : ''}</div>
+          <div class="text-xs text-slate-500">${c.uf}</div>
           <div class="text-xs font-medium text-indigo-600">${c.situacao}${c.resultado ? ' · ' + c.resultado : ''}</div>
         </div>
       `;
       card.addEventListener('click', () => abrirDetalhe(c));
+      card.querySelector('.btn-favorito').addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        toggleFavorito(c.sq);
+        render();
+      });
       grid.appendChild(card);
     }
+  }
+
+  // Presidente e Governador são os únicos cargos com vice; o vice aparece
+  // como candidato próprio, casado pela mesma coligação.
+  function acharVice(c) {
+    if (c.cargo !== 'PRESIDENTE' && c.cargo !== 'GOVERNADOR') return null;
+    return candidatos.find((v) => v.cargo === 'VICE-' + c.cargo && v.sqColigacao === c.sqColigacao) || null;
+  }
+
+  // Ficha compacta de 2 linhas (nº+nome+partido, cargo+vice) — pensada pra
+  // caber pelo menos 5 candidatos por folha A4/Carta na impressão, sem
+  // depender de dados extras (--completo) que nem sempre estão baixados.
+  function montarCardImpressao(c) {
+    const vice = acharVice(c);
+    return `<div class="card-impressao">
+      ${
+        c.foto
+          ? `<img src="${fotoUrl(anoAtual, c)}" alt="" />`
+          : ''
+      }
+      <div class="min-w-0 flex-1">
+        <div class="ci-principal">Nº ${c.numero} — ${c.nomeUrna || c.nome} (${c.siglaPartido})</div>
+        <div class="ci-secundaria">${c.cargo}${vice ? ' · Vice: ' + (vice.nomeUrna || vice.nome) : ''}</div>
+      </div>
+    </div>`;
+  }
+
+  function renderParaImpressao() {
+    const lista = filtrarOrdenar(); // reflete o que estiver filtrado na tela, incluindo "somente favoritos"
+    gridImpressao.innerHTML = lista.length
+      ? lista.map(montarCardImpressao).join('')
+      : '<p class="p-6 text-sm text-slate-500">Nenhum candidato para exibir.</p>';
   }
 
   async function carregarExtras(ano) {
@@ -404,14 +488,17 @@
     detalhe.innerHTML = `
       <div class="flex items-start justify-between gap-4">
         <h2 class="text-lg font-bold text-slate-900">${c.nomeUrna || c.nome}</h2>
-        <button class="fechar shrink-0 rounded-lg border border-slate-200 px-3 py-1 text-xs font-medium text-slate-500 transition-all duration-200 ease-in-out hover:bg-slate-100">fechar ✕</button>
+        <div class="flex shrink-0 items-center gap-2">
+          <button class="favorito-detalhe rounded-lg border border-slate-200 px-3 py-1 text-xs font-medium text-amber-600 transition-all duration-200 ease-in-out hover:bg-amber-50">${ehFavorito(c.sq) ? '★ favorito' : '☆ favoritar'}</button>
+          <button class="fechar rounded-lg border border-slate-200 px-3 py-1 text-xs font-medium text-slate-500 transition-all duration-200 ease-in-out hover:bg-slate-100">fechar ✕</button>
+        </div>
       </div>
       <table class="mt-4 w-full border-collapse">
         ${linhaTabela('Nome completo', c.nome)}
         ${linhaTabela('Número', c.numero)}
         ${linhaTabela('Partido', `${c.siglaPartido} — ${c.nomePartido}`)}
         ${linhaTabela('Cargo', c.cargo)}
-        ${linhaTabela('UF / Município', `${c.uf}${c.municipio ? ' / ' + c.municipio : ''}`)}
+        ${linhaTabela('UF', c.uf)}
         ${linhaTabela('Coligação', c.coligacao)}
         ${linhaTabela('Situação', c.situacao)}
         ${linhaTabela('Resultado', c.resultado)}
@@ -425,6 +512,12 @@
       <div id="detalhe-extra"></div>`;
     overlay.classList.remove('hidden');
     detalhe.querySelector('.fechar').addEventListener('click', () => overlay.classList.add('hidden'));
+    const btnFavDetalhe = detalhe.querySelector('.favorito-detalhe');
+    btnFavDetalhe.addEventListener('click', () => {
+      toggleFavorito(c.sq);
+      btnFavDetalhe.textContent = ehFavorito(c.sq) ? '★ favorito' : '☆ favoritar';
+      render();
+    });
 
     const info = manifest.years[anoAtual];
     const extraDiv = detalhe.querySelector('#detalhe-extra');
@@ -467,6 +560,65 @@
     extraDiv.innerHTML = html || '<p class="mt-4 text-xs text-slate-500">Sem dados extras para este candidato.</p>';
   }
 
+  // Favoritos ficam só no localStorage (por navegador) — a URL carrega
+  // apenas o estado dos filtros, pra dar pra compartilhar/colar um link.
+  function escreverFiltrosNaUrl() {
+    const params = new URLSearchParams();
+    if (anoAtual) params.set('ano', anoAtual);
+    if (ufSel.value) params.set('uf', ufSel.value);
+    if (cargoSel.getSelecionados().length) params.set('cargo', cargoSel.getSelecionados().join(','));
+    if (partidoSel.getSelecionados().length) params.set('partido', partidoSel.getSelecionados().join(','));
+    if (instrucaoSel.getSelecionados().length) params.set('instrucao', instrucaoSel.getSelecionados().join(','));
+    if (ocupacaoSel.getSelecionados().length) params.set('ocupacao', ocupacaoSel.getSelecionados().join(','));
+    if (naturalidadeSel.getSelecionados().length) {
+      params.set('naturalidade', naturalidadeSel.getSelecionados().join(','));
+    }
+    if (bensSel.getSelecionados().length) params.set('bens', bensSel.getSelecionados().join(','));
+    if (buscaInput.value.trim()) params.set('busca', buscaInput.value.trim());
+    if (ordenarSel.value !== 'asc') params.set('ordenar', ordenarSel.value);
+    if (somenteFavoritosChk.checked) params.set('fav', '1');
+    const query = params.toString();
+    history.replaceState(null, '', query ? `?${query}` : location.pathname);
+  }
+
+  function aplicarFiltrosDaUrl(query) {
+    const params = new URLSearchParams(query);
+    if (!params.toString()) return;
+
+    const fav = params.get('fav') === '1';
+    const uf = params.get('uf');
+    // uf vazio na URL só é aceito com fav=1 — senão voltaria a renderizar
+    // >20 mil candidatos. Valor inválido/antigo cai pro padrão seguro.
+    if (uf !== null && (uf || fav)) {
+      ufSel.value = uf;
+      if (ufSel.value !== uf) ufSel.value = ufPadrao;
+    }
+    atualizarOpcoesCargo();
+
+    const cargos = params.get('cargo');
+    if (cargos) for (const v of cargos.split(',')) cargoSel.selecionar(v);
+    atualizarOpcoesSecundarias();
+
+    const aplicarMulti = (param, controle) => {
+      const raw = params.get(param);
+      if (raw) for (const v of raw.split(',')) controle.selecionar(v);
+    };
+    aplicarMulti('partido', partidoSel);
+    aplicarMulti('instrucao', instrucaoSel);
+    aplicarMulti('ocupacao', ocupacaoSel);
+    if (!naturalidadeSel.disabled) aplicarMulti('naturalidade', naturalidadeSel);
+    if (!bensSel.disabled) aplicarMulti('bens', bensSel);
+
+    const busca = params.get('busca');
+    if (busca) buscaInput.value = busca;
+
+    const ordenar = params.get('ordenar');
+    if (ordenar === 'asc' || ordenar === 'desc') ordenarSel.value = ordenar;
+
+    somenteFavoritosChk.checked = fav;
+    render();
+  }
+
   overlay.addEventListener('click', (ev) => {
     if (ev.target === overlay) overlay.classList.add('hidden');
   });
@@ -482,12 +634,15 @@
     atualizarOpcoesSecundarias();
     render();
   };
-  for (const control of [partidoSel, municipioSel, instrucaoSel, ocupacaoSel, naturalidadeSel, bensSel]) {
+  for (const control of [partidoSel, instrucaoSel, ocupacaoSel, naturalidadeSel, bensSel]) {
     control.onChange = render;
   }
   ordenarSel.addEventListener('change', render);
   buscaInput.addEventListener('input', render);
   limparBtn.addEventListener('click', limparFiltros);
+  somenteFavoritosChk.addEventListener('change', render);
+  imprimirBtn.addEventListener('click', () => window.print());
+  window.addEventListener('beforeprint', renderParaImpressao);
 
   carregarManifest();
 })();
