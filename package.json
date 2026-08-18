@@ -1,0 +1,16 @@
+{
+  "name": "eleicoes-brasileiras",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Baixa candidatos do TSE por ano e roda um app local de busca/filtro",
+  "bin": {
+    "build": "bin/build.js"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
