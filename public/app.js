@@ -40,7 +40,20 @@
 
     const painel = document.createElement('div');
     painel.className =
-      'absolute left-0 top-full z-20 mt-1 hidden max-h-56 w-max min-w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg shadow-indigo-500/5';
+      'absolute left-0 top-full z-20 mt-1 hidden w-max min-w-full rounded-xl border border-slate-200 bg-white p-1 shadow-lg shadow-indigo-500/5';
+
+    const buscaPainel = document.createElement('input');
+    buscaPainel.type = 'text';
+    buscaPainel.placeholder = 'Buscar...';
+    buscaPainel.className =
+      'mb-1 w-full rounded-lg border border-slate-200 px-2 py-1 text-sm text-slate-800 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500';
+    buscaPainel.addEventListener('click', (ev) => ev.stopPropagation());
+    buscaPainel.addEventListener('input', renderPainel);
+
+    const listaPainel = document.createElement('div');
+    listaPainel.className = 'max-h-56 overflow-y-auto';
+
+    painel.append(buscaPainel, listaPainel);
 
     function renderTags() {
       container.querySelectorAll('.ms-tag').forEach((tag) => tag.remove());
@@ -73,12 +86,18 @@
     }
 
     function renderPainel() {
-      painel.innerHTML = '';
+      listaPainel.innerHTML = '';
       if (!opcoes.length) {
-        painel.innerHTML = '<p class="px-2 py-1.5 text-sm text-slate-400">Nenhuma opção</p>';
+        listaPainel.innerHTML = '<p class="px-2 py-1.5 text-sm text-slate-400">Nenhuma opção</p>';
         return;
       }
-      for (const o of opcoes) {
+      const filtro = buscaPainel.value.trim().toUpperCase();
+      const visiveis = filtro ? opcoes.filter((o) => o.rotulo.toUpperCase().includes(filtro)) : opcoes;
+      if (!visiveis.length) {
+        listaPainel.innerHTML = '<p class="px-2 py-1.5 text-sm text-slate-400">Nenhum resultado</p>';
+        return;
+      }
+      for (const o of visiveis) {
         const marcado = selecionados.includes(o.valor);
         const linha = document.createElement('label');
         linha.className = `flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-slate-100 ${marcado ? 'text-indigo-700' : 'text-slate-700'}`;
@@ -95,7 +114,7 @@
         texto.className = 'truncate';
         texto.textContent = o.rotulo;
         linha.append(checkbox, texto);
-        painel.appendChild(linha);
+        listaPainel.appendChild(linha);
       }
     }
 
@@ -110,11 +129,16 @@
       aberto = true;
       painel.classList.remove('hidden');
       chevron.classList.add('rotate-180');
+      buscaPainel.focus();
     }
     function fechar() {
       aberto = false;
       painel.classList.add('hidden');
       chevron.classList.remove('rotate-180');
+      if (buscaPainel.value) {
+        buscaPainel.value = '';
+        renderPainel();
+      }
     }
 
     trigger.addEventListener('click', (ev) => {
@@ -213,6 +237,29 @@
     salvarFavoritos();
   }
 
+  // Lembra o último Ano/Estado escolhidos pelo usuário (não o que vem de um
+  // link compartilhado — ver aplicarFiltrosDaUrl) pra "Limpar filtros" e uma
+  // nova visita sem query string caírem no que a pessoa vinha usando, em vez
+  // de sempre no primeiro estado em ordem alfabética.
+  const ULTIMO_FILTRO_KEY = 'eleicoes-ultimo-filtro';
+
+  function carregarUltimoFiltro() {
+    try {
+      return JSON.parse(localStorage.getItem(ULTIMO_FILTRO_KEY)) || {};
+    } catch {
+      return {};
+    }
+  }
+
+  function salvarUltimoFiltro(patch) {
+    try {
+      const atual = carregarUltimoFiltro();
+      localStorage.setItem(ULTIMO_FILTRO_KEY, JSON.stringify({ ...atual, ...patch }));
+    } catch {
+      // localStorage indisponível (ex: modo privado) — segue sem persistir
+    }
+  }
+
   function fotoUrl(ano, c) {
     return `data/${ano}/fotos/${c.uf}/F${c.uf}${c.sq}_div.jpg`;
   }
@@ -308,10 +355,12 @@
     }
     const queryInicial = location.search;
     const anoUrl = new URLSearchParams(queryInicial).get('ano');
+    const anoSalvo = carregarUltimoFiltro().ano;
     // carregarAno() termina chamando render(), que já reescreve a URL com os
     // filtros padrão — por isso a query original precisa ser capturada antes
     // dessa chamada, não relida de location.search depois.
-    await carregarAno(anos.includes(anoUrl) ? anoUrl : anos[0]);
+    const anoInicial = anos.includes(anoUrl) ? anoUrl : anos.includes(anoSalvo) ? anoSalvo : anos[0];
+    await carregarAno(anoInicial);
     aplicarFiltrosDaUrl(queryInicial);
   }
 
@@ -333,7 +382,9 @@
 
     // Sem UF selecionada, a lista tem >20 mil candidatos e trava o navegador
     // (cada card carrega uma foto) — sempre começa com um estado escolhido.
-    ufPadrao = ufs[0] || '';
+    // Prioriza o último Estado usado pelo usuário, se ele existir neste ano.
+    const ufSalvo = carregarUltimoFiltro().uf;
+    ufPadrao = (ufSalvo && ufs.includes(ufSalvo) ? ufSalvo : ufs[0]) || '';
     ufSel.value = ufPadrao;
     cargoSel.limpar();
     partidoSel.limpar();
@@ -623,9 +674,13 @@
     if (ev.target === overlay) overlay.classList.add('hidden');
   });
 
-  anoSel.addEventListener('change', () => carregarAno(anoSel.value));
+  anoSel.addEventListener('change', () => {
+    salvarUltimoFiltro({ ano: anoSel.value });
+    carregarAno(anoSel.value);
+  });
 
   ufSel.addEventListener('change', () => {
+    salvarUltimoFiltro({ uf: ufSel.value });
     atualizarOpcoesCargo();
     atualizarOpcoesSecundarias();
     render();
