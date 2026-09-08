@@ -102,6 +102,22 @@ function extractZip(zipPath, destDir) {
   execFileSync('unzip', ['-o', '-q', zipPath, '-d', destDir]);
 }
 
+// Remove os CSVs/arquivos extraídos de dentro de raw/, mas preserva os
+// .zip: eles funcionam como cache manual (ver skip-if-cached em
+// downloadFile) para quando o CDN do TSE bloqueia o download automático.
+function pruneExtracted(dir) {
+  if (!fs.existsSync(dir)) return;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const entryPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      pruneExtracted(entryPath);
+      if (fs.readdirSync(entryPath).length === 0) fs.rmdirSync(entryPath);
+    } else if (!entry.name.endsWith('.zip')) {
+      fs.unlinkSync(entryPath);
+    }
+  }
+}
+
 function readCsv(dir, filename) {
   const filePath = path.join(dir, filename);
   if (!fs.existsSync(filePath)) {
@@ -295,10 +311,7 @@ async function buildYear(year, { completo = false, force = false, photos = true 
 
   updateManifest(year, info, completo || needsExtra);
 
-  const rawDir = path.join(yearDir, 'raw');
-  if (fs.existsSync(rawDir)) {
-    fs.rmSync(rawDir, { recursive: true, force: true });
-  }
+  pruneExtracted(path.join(yearDir, 'raw'));
 
   console.log(`[${year}] pronto.`);
 }
