@@ -1,10 +1,2 @@
 node_modules/
-
-# Dados baixados do TSE não ficam versionados (são derivados, regenerados
-# pelo build) — exceto data/<ano>/raw/, usado para colocar manualmente um
-# zip já baixado quando o CDN do TSE bloqueia o download automático (ver
-# skip-if-cached em src/download.js).
-data/*
-!data/*/
-data/*/*
-!data/*/raw/
+data/

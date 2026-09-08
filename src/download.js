@@ -74,10 +74,6 @@ const EXTRA_DATASETS = [
 ];
 
 async function downloadFile(url, destPath) {
-  if (fs.existsSync(destPath)) {
-    console.log(`  (usando arquivo já baixado manualmente: ${destPath})`);
-    return;
-  }
   const res = await fetch(url);
   if (!res.ok) {
     throw new Error(`HTTP ${res.status} ao baixar ${url}`);
@@ -100,22 +96,6 @@ function ensureUnzipAvailable() {
 function extractZip(zipPath, destDir) {
   fs.mkdirSync(destDir, { recursive: true });
   execFileSync('unzip', ['-o', '-q', zipPath, '-d', destDir]);
-}
-
-// Remove os CSVs/arquivos extraídos de dentro de raw/, mas preserva os
-// .zip: eles funcionam como cache manual (ver skip-if-cached em
-// downloadFile) para quando o CDN do TSE bloqueia o download automático.
-function pruneExtracted(dir) {
-  if (!fs.existsSync(dir)) return;
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const entryPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      pruneExtracted(entryPath);
-      if (fs.readdirSync(entryPath).length === 0) fs.rmdirSync(entryPath);
-    } else if (!entry.name.endsWith('.zip')) {
-      fs.unlinkSync(entryPath);
-    }
-  }
 }
 
 function readCsv(dir, filename) {
@@ -311,7 +291,10 @@ async function buildYear(year, { completo = false, force = false, photos = true 
 
   updateManifest(year, info, completo || needsExtra);
 
-  pruneExtracted(path.join(yearDir, 'raw'));
+  const rawDir = path.join(yearDir, 'raw');
+  if (fs.existsSync(rawDir)) {
+    fs.rmSync(rawDir, { recursive: true, force: true });
+  }
 
   console.log(`[${year}] pronto.`);
 }
