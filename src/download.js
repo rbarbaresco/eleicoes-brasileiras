@@ -163,6 +163,7 @@ async function buildMainDataset(year, yearDir, { photos }) {
         const fotoZipPath = path.join(rawDir, 'fotos', `foto_cand${year}_${uf}_div.zip`);
         console.log(`[${year}] baixando fotos ${uf}...`);
         await downloadFile(FOTO_URL(year, uf), fotoZipPath);
+        fs.rmSync(ufFotosDir, { recursive: true, force: true });
         extractZip(fotoZipPath, ufFotosDir);
       } catch (err) {
         console.warn(`[${year}] fotos de ${uf} puladas: ${err.message}`);
