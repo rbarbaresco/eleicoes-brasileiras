@@ -74,6 +74,10 @@ const EXTRA_DATASETS = [
 ];
 
 async function downloadFile(url, destPath) {
+  if (fs.existsSync(destPath)) {
+    console.log(`  (usando arquivo já baixado manualmente: ${destPath})`);
+    return;
+  }
   const res = await fetch(url);
   if (!res.ok) {
     throw new Error(`HTTP ${res.status} ao baixar ${url}`);
